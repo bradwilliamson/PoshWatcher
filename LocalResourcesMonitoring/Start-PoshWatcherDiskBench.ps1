@@ -1,111 +1,50 @@
-<#
-.DESCRIPTION
-This is a PoshWatcher configuration script currently in beta testing. Use this script to customize the PoshWatcher module's behavior, including
-enabling or disabling specific functions and specifying their targets and other parameters. You can modify the configuration to your liking. This
-is a bare bones example of how to use each function within the module. If you do not want to use a certain function set the Enabled = $true to Enabled = $false 
-in the below configuration section. 
+function Start-PoshWatcherDiskBench {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidatePattern("^[A-Za-z]:$")]
+        [string[]]$Disks,
 
-.EXAMPLE
-.\PoshWatcherConfig.ps1
+        [Parameter(Mandatory=$false)]
+        [int]$Iterations = 5,
 
-This example runs the script with the settings specified in the script.
+        [Parameter(Mandatory=$false)]
+        [ValidateSet("1MB", "10MB", "100MB")]
+        [string]$FileSize = "10MB"
+    )
 
-.MANAGING BACKGROUND TASKS
-1. Retrieve the status of background jobs:
-
-Get-Job
-
-This command will list all background jobs, their names, and their current status (e.g., Running, Completed, Failed).
-
-2. Retrieve the output of a completed background job:
-
-Receive-Job -Name <JobName>
-
-Replace <JobName> with the name of the job you want to retrieve the output from. For example:
-
-Receive-Job -Name "Start-PoshWatcherPing"
-
-This command will display the output of the specified job.
-
-3. Stop a running background job:
-
-Stop-Job -Name <JobName>
-
-Replace <JobName> with the name of the job you want to stop. For example:
-
-Stop-Job -Name "Start-PoshWatcherPing"
-
-This command will stop the specified job.
-#>
-
-# Import the PoshWatcher module
-Import-Module ".\PoshWatcher.psd1" -Force
-
-# User Configuration
-$targets = @(
-    "8.8.8.8",
-    "8.8.4.4"
-)
-
-$disks = @(
-    "C:",
-    "D:"
-)
-
-# Ping function settings
-$pingSettings = @{
-    Enabled = $true
-}
-
-# Route function settings
-$routeSettings = @{
-    Enabled = $true
-    HopLimit = 30
-}
-
-# Disk bench function settings
-$diskBenchSettings = @{
-    Enabled = $true
-    Iterations = 5
-    FileSize = "10MB"
-}
-
-# Define functions to run continuously
-$functionsToRun = @(
-    @{
-        Name = "Start-PoshWatcherPing"
-        Enabled = $pingSettings.Enabled
-        Parameters = @{
-            Target = $targets[0]
+    try {
+        $results = foreach ($disk in $Disks) {
+            for ($i = 1; $i -le $Iterations; $i++) {
+                $tempFile = [System.IO.Path]::GetTempFileName()
+                $sw = [Diagnostics.Stopwatch]::StartNew()
+                $fileSizeInBytes = [int]($fileSize -replace 'MB','') * 1024 * 1024
+                $null = New-Object -TypeName Byte[] -ArgumentList $fileSizeInBytes
+                $sw.Stop()
+                $diskUsage = Get-PhysicalDisk -FriendlyName $disk | Select-Object Size, MediaType, OperationalStatus
+                $diskThroughput = [math]::Round(($FileSize / $sw.Elapsed.TotalSeconds) / 1MB, 2)
+                $diskIO = Get-PhysicalDisk -FriendlyName $disk | Select-Object AvgDiskReadQueueLength, AvgDiskWriteQueueLength
+                $diskLatency = Get-PhysicalDisk -FriendlyName $disk | Select-Object AvgDiskSecPerRead, AvgDiskSecPerWrite
+                $diskErrors = Get-PhysicalDisk -FriendlyName $disk | Select-Object ReadErrorsTotal, WriteErrorsTotal
+                [PSCustomObject]@{
+                    Disk = $disk
+                    FileSize = $fileSize
+                    ElapsedTime = $sw.Elapsed.TotalSeconds
+                    DiskUsage = $diskUsage
+                    DiskThroughput = $diskThroughput
+                    DiskIO = $diskIO
+                    DiskLatency = $diskLatency
+                    DiskErrors = $diskErrors
+                }
+                Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
+            }
         }
-    },
-    @{
-        Name = "Start-PoshWatcherRoute"
-        Enabled = $routeSettings.Enabled
-        Parameters = @{
-            Target = $targets[1]
-            HopLimit = $routeSettings.HopLimit
-        }
-    },
-    @{
-        Name = "Start-PoshWatcherDiskBench"
-        Enabled = $diskBenchSettings.Enabled
-        Parameters = @{
-            Disks = $disks
-            Iterations = $diskBenchSettings.Iterations
-            FileSize = $diskBenchSettings.FileSize
-        }
+        return $results
     }
-)
-
-# Start functions as background jobs
-foreach ($function in $functionsToRun) {
-    if ($function.Enabled) {
-        $name = $function.Name
-        $params = $function.Parameters
-        $block = [ScriptBlock]::Create("$name $(&{$args}@params)")
-
-        # Start the function as a background job
-        Start-Job -Name $name -ScriptBlock $block
+    catch {
+        Write-Error "An error occurred while benchmarking disks: $($_.Exception.Message)"
     }
+
 }
+
+Export-ModuleMember -Function Start-PoshWatcherDiskBench
