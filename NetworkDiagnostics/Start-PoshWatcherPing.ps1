@@ -1,7 +1,7 @@
 # The Start-PingMonitor function performs continuous ping monitoring of a target
 # specified by IP address or hostname. It calculates various statistics, such as
 # lowest, highest, and average ping time, packet loss, jitter, and standard deviation.
-function Start-PingMonitor {
+function Start-PoshWatcherPing {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory=$true, ValueFromPipeline=$true, ValueFromPipelineByPropertyName=$true)]
@@ -91,4 +91,4 @@ function Start-PingMonitor {
 }
 
 # Export the Start-PingMonitor function to be accessible when the module is imported
-Export-ModuleMember -Function Start-PingMonitor
+Export-ModuleMember -Function Start-PoshWatcherPing
